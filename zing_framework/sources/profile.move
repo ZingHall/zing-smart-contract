@@ -20,6 +20,7 @@ module zing_framework::profile {
 
     public struct Profile<phantom T> has key {
         id: UID,
+        img_url: String,
         name: String,
     }
 
