@@ -1,5 +1,5 @@
 module zing_framework::profile {
-    use std::ascii::String;
+    use std::ascii::{Self, String};
     use sui::{package, table::{Self, Table}, types::is_one_time_witness};
 
     // === Errors ===
@@ -18,7 +18,7 @@ module zing_framework::profile {
         registry: Table<address, ID>,
     }
 
-    public struct Profile<phantom T> has key {
+    public struct Profile<phantom P> has key {
         id: UID,
         img_url: String,
         name: String,
@@ -46,10 +46,10 @@ module zing_framework::profile {
     }
 
     // === Public Functions ===
-    public fun register<T: drop>(witness: T, name: String, ctx: &mut TxContext) {
+    public fun register<P: drop>(witness: P, name: String, ctx: &mut TxContext) {
         assert!(is_one_time_witness(&witness), EBadWitness);
 
-        let profile = Profile<T> { id: object::new(ctx), name };
+        let profile = Profile<P> { id: object::new(ctx), img_url: ascii::string(b""), name };
 
         transfer::transfer(profile, ctx.sender());
     }

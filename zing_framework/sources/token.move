@@ -1,3 +1,4 @@
+// This is customized closed loop token following global policy rules. it's important to know that we can't expose any Balane out as they can turn into Coin struct
 module zing_framework::token {
     use std::{ascii::String, type_name::{Self, TypeName}};
     use sui::{
@@ -15,9 +16,7 @@ module zing_framework::token {
     const ENonZeroSupply: u64 = 2;
     const EBalanceTooLow: u64 = 3;
     const ENotZero: u64 = 4;
-    const ECantConsumeBalance: u64 = 5;
     const ENoConfig: u64 = 6;
-    const EUseImmutableConfirm: u64 = 7;
 
     // === Constants ===
 
@@ -39,35 +38,38 @@ module zing_framework::token {
     }
 
     // === Structs ===
+    // OTW
     public struct TOKEN has drop {}
 
     public struct PlatformCap has key, store {
         id: UID,
     }
 
+    /// Shared object object
     public struct PlatFormPolicy has key {
         id: UID,
         default_rules: VecMap<String, VecSet<TypeName>>,
     }
 
-    public struct PolicyRulesKey<phantom T> has copy, drop, store {}
+    /// Dynamic field key for Policy Rules for each type
+    public struct PolicyRulesKey<phantom P> has copy, drop, store {}
 
     public fun default_rules(platform_policy: &PlatFormPolicy): &VecMap<String, VecSet<TypeName>> {
         &platform_policy.default_rules
     }
 
-    public fun policy_rules_of<T>(
+    public fun policy_rules_of<P>(
         platform_policy: &PlatFormPolicy,
     ): &VecMap<String, VecSet<TypeName>> {
-        let policy_key = PolicyRulesKey<T> {};
+        let policy_key = PolicyRulesKey<P> {};
         if (df::exists_(&platform_policy.id, policy_key))
             df::borrow(&platform_policy.id, policy_key) else &platform_policy.default_rules
     }
 
-    fun policy_rules_of_mut<T>(
+    fun policy_rules_of_mut<P>(
         platform_policy: &mut PlatFormPolicy,
     ): &mut VecMap<String, VecSet<TypeName>> {
-        let policy_key = PolicyRulesKey<T> {};
+        let policy_key = PolicyRulesKey<P> {};
         if (df::exists_(&platform_policy.id, policy_key))
             df::borrow_mut(
             &mut platform_policy.id,
@@ -75,24 +77,34 @@ module zing_framework::token {
         ) else &mut platform_policy.default_rules
     }
 
-    public struct TokenCap<phantom T> has key {
+    public struct TokenCap<phantom P> has key, store {
         id: UID,
         /// The current circulating supply
-        supply: Supply<T>,
+        supply: Supply<P>,
         /// The total max supply allowed to exist at any time that was issued
         /// upon creation of Asset T
         total_supply: u64,
-        /// TAs of type T can be burned by the admin
-        burnable: bool,
+    }
+
+    public fun supply<P>(token_cap: &TokenCap<P>): &Supply<P> {
+        &token_cap.supply
+    }
+
+    public fun supply_mut<P>(token_cap: &mut TokenCap<P>): &mut Supply<P> {
+        &mut token_cap.supply
+    }
+
+    public fun total_supply<P>(token_cap: &mut TokenCap<P>): u64 {
+        token_cap.supply.supply_value()
     }
 
     // To comply ERC-1155 standard, we allow config additional fields
-    public struct Token<phantom T> has key {
+    public struct Token<phantom P> has key {
         id: UID,
-        balance: Balance<T>,
+        balance: Balance<P>,
     }
 
-    public struct ActionRequest<phantom T> {
+    public struct ActionRequest<phantom P> {
         name: String,
         /// Amount is present in all of the txs
         amount: u64,
@@ -100,16 +112,13 @@ module zing_framework::token {
         sender: address,
         /// Recipient is only available in `transfer` action.
         recipient: Option<address>,
-        /// The balance to be "spent" in the `TokenPolicy`, only available
-        /// in the `spend` action.
-        spent_balance: Option<Balance<T>>,
         /// Collected approvals (stamps) from completed `Rules`. They're matched
         /// against `TokenPolicy.rules` to determine if the request can be
         /// confirmed.
         approvals: VecSet<TypeName>,
     }
 
-    public struct RuleKey<phantom T> has copy, drop, store { is_protected: bool }
+    public struct RuleKey<phantom P> has copy, drop, store { is_protected: bool }
 
     // === Events ===
 
@@ -124,23 +133,23 @@ module zing_framework::token {
 
     // === Public Functions ===
     /// Called by publisher to acquire Supply object after their publish
-    public fun new<T>(
+    public fun new<P>(
         platform_policy: &mut PlatFormPolicy,
-        treasury_cap: TreasuryCap<T>,
+        // we use TreasuryCap to guarantee one-time-witness
+        treasury_cap: TreasuryCap<P>,
         ctx: &mut TxContext,
-    ): TokenCap<T> {
+    ): TokenCap<P> {
         assert!(treasury_cap.total_supply() == 0, ENonZeroSupply);
         let token_cap = TokenCap {
             id: object::new(ctx),
             supply: treasury_cap.treasury_into_supply(),
             total_supply: 0,
-            burnable: false,
         };
 
         // add policy
         df::add(
             &mut platform_policy.id,
-            PolicyRulesKey<T> {},
+            PolicyRulesKey<P> {},
             vec_map::empty<String, VecSet<TypeName>>(),
         );
 
@@ -150,7 +159,7 @@ module zing_framework::token {
     /// Transfer a `Token` to a `recipient`. Creates an `ActionRequest` for the
     /// "transfer" action. The `ActionRequest` contains the `recipient` field
     /// to be used in verification.
-    public fun transfer<T>(t: Token<T>, recipient: address, ctx: &mut TxContext): ActionRequest<T> {
+    public fun transfer<P>(t: Token<P>, recipient: address, ctx: &mut TxContext): ActionRequest<P> {
         let amount = t.balance.value();
         transfer::transfer(t, recipient);
 
@@ -158,32 +167,12 @@ module zing_framework::token {
             transfer_action(),
             amount,
             option::some(recipient),
-            option::none(),
-            ctx,
-        )
-    }
-
-    /// Spend a `Token` by unwrapping it and storing the `Balance` in the
-    /// `ActionRequest` for the "spend" action. The `ActionRequest` contains
-    /// the `spent_balance` field to be used in verification.
-    ///
-    /// Spend action requires `confirm_request_mut` to be called to confirm the
-    /// request and join the spent balance with the `TokenPolicy.spent_balance`.
-    public fun spend<T>(t: Token<T>, ctx: &mut TxContext): ActionRequest<T> {
-        let Token { id, balance } = t;
-        id.delete();
-
-        new_request(
-            spend_action(),
-            balance.value(),
-            option::none(),
-            option::some(balance),
             ctx,
         )
     }
 
     /// Join two `Token`s into one, always available.
-    public fun join<T>(token: &mut Token<T>, another: Token<T>) {
+    public fun join<P>(token: &mut Token<P>, another: Token<P>) {
         let Token { id, balance } = another;
         token.balance.join(balance);
         id.delete();
@@ -191,7 +180,7 @@ module zing_framework::token {
 
     /// Split a `Token` with `amount`.
     /// Aborts if the `Token.balance` is lower than `amount`.
-    public fun split<T>(token: &mut Token<T>, amount: u64, ctx: &mut TxContext): Token<T> {
+    public fun split<P>(token: &mut Token<P>, amount: u64, ctx: &mut TxContext): Token<P> {
         assert!(token.balance.value() >= amount, EBalanceTooLow);
         Token {
             id: object::new(ctx),
@@ -200,7 +189,7 @@ module zing_framework::token {
     }
 
     /// Create a zero `Token`.
-    public fun zero<T>(ctx: &mut TxContext): Token<T> {
+    public fun zero<P>(ctx: &mut TxContext): Token<P> {
         Token {
             id: object::new(ctx),
             balance: balance::zero(),
@@ -209,7 +198,7 @@ module zing_framework::token {
 
     /// Destroy an empty `Token`, fails if the balance is non-zero.
     /// Aborts if the `Token.balance` is not zero.
-    public fun destroy_zero<T>(token: Token<T>) {
+    public fun destroy_zero<P>(token: Token<P>) {
         let Token { id, balance } = token;
         assert!(balance.value() == 0, ENotZero);
         balance.destroy_zero();
@@ -218,7 +207,7 @@ module zing_framework::token {
 
     #[allow(lint(self_transfer))]
     /// Transfer the `Token` to the transaction sender.
-    public fun keep<T>(token: Token<T>, ctx: &mut TxContext) {
+    public fun keep<P>(token: Token<P>, ctx: &mut TxContext) {
         transfer::transfer(token, ctx.sender())
     }
 
@@ -226,18 +215,16 @@ module zing_framework::token {
 
     /// Create a new `ActionRequest`.
     /// Publicly available method to allow for custom actions.
-    public fun new_request<T>(
+    public fun new_request<P>(
         name: String,
         amount: u64,
         recipient: Option<address>,
-        spent_balance: Option<Balance<T>>,
         ctx: &TxContext,
-    ): ActionRequest<T> {
+    ): ActionRequest<P> {
         ActionRequest {
             name,
             amount,
             recipient,
-            spent_balance,
             sender: ctx.sender(),
             approvals: vec_set::empty(),
         }
@@ -253,25 +240,21 @@ module zing_framework::token {
     /// - the action is not allowed (missing record in `rules`)
     /// - action contains `spent_balance` (use `confirm_request_mut`)
     /// - the `ActionRequest` does not meet the `TokenPolicy` rules for the action
-    public fun confirm_request<T>(
+    public fun confirm_request<P>(
         platform_policy: &PlatFormPolicy,
-        request: ActionRequest<T>,
+        request: ActionRequest<P>,
         _ctx: &mut TxContext,
     ): (String, u64, address, Option<address>) {
-        assert!(request.spent_balance.is_none(), ECantConsumeBalance);
-        let policy_rules = platform_policy.policy_rules_of<T>();
+        let policy_rules = platform_policy.policy_rules_of<P>();
         assert!(policy_rules.contains(&request.name), EUnknownAction);
 
         let ActionRequest {
             name,
             approvals,
-            spent_balance,
             amount,
             sender,
             recipient,
         } = request;
-
-        spent_balance.destroy_none();
 
         let rules = policy_rules[&name].into_keys();
         let rules_len = rules.length();
@@ -286,26 +269,22 @@ module zing_framework::token {
         (name, amount, sender, recipient)
     }
 
-    public fun confirm_request_mut<T>(
+    public fun confirm_request_mut<P>(
         platform_policy: &mut PlatFormPolicy,
-        request: ActionRequest<T>,
+        request: ActionRequest<P>,
         ctx: &mut TxContext,
     ): (String, u64, address, Option<address>) {
-        let policy_rules = platform_policy.policy_rules_of<T>();
+        let policy_rules = platform_policy.policy_rules_of<P>();
         assert!(policy_rules.contains(&request.name), EUnknownAction);
-        assert!(request.spent_balance.is_some(), EUseImmutableConfirm);
-
-        // TODO: do we need to add spent balance, and extract
-        // policy.spent_balance.join(request.spent_balance.extract());
 
         confirm_request(platform_policy, request, ctx)
     }
 
     // === Rules API ===
 
-    public fun add_approval<T, W: drop>(
+    public fun add_approval<P, W: drop>(
         _t: W,
-        request: &mut ActionRequest<T>,
+        request: &mut ActionRequest<P>,
         _ctx: &mut TxContext,
     ) {
         request.approvals.insert(type_name::get<W>())
@@ -367,13 +346,13 @@ module zing_framework::token {
         platform_policy.default_rules.insert(action, vec_set::empty());
     }
 
-    public fun allow_action<T>(
+    public fun allow_action<P>(
         platform_policy: &mut PlatFormPolicy,
         _cap: &PlatformCap,
         action: String,
         _ctx: &mut TxContext,
     ) {
-        let policy_rules = platform_policy.policy_rules_of_mut<T>();
+        let policy_rules = platform_policy.policy_rules_of_mut<P>();
         policy_rules.insert(action, vec_set::empty());
     }
 
@@ -386,13 +365,13 @@ module zing_framework::token {
         platform_policy.default_rules.remove(&action);
     }
 
-    public fun disallow_action<T>(
+    public fun disallow_action<P>(
         platform_policy: &mut PlatFormPolicy,
         _cap: &PlatformCap,
         action: String,
         _ctx: &mut TxContext,
     ) {
-        let policy_rules = platform_policy.policy_rules_of_mut<T>();
+        let policy_rules = platform_policy.policy_rules_of_mut<P>();
         policy_rules.remove(&action);
     }
 
@@ -407,12 +386,12 @@ module zing_framework::token {
         platform_policy.default_rules.get_mut(&action).insert(type_name::get<Rule>())
     }
 
-    public fun add_rule_for_action<T, Rule: drop>(
+    public fun add_rule_for_action<P, Rule: drop>(
         platform_policy: &mut PlatFormPolicy,
         _cap: &PlatformCap,
         action: String,
     ) {
-        let policy_rules = platform_policy.policy_rules_of_mut<T>();
+        let policy_rules = platform_policy.policy_rules_of_mut<P>();
         if (!policy_rules.contains(&action)) policy_rules.insert(action, vec_set::empty());
 
         policy_rules.get_mut(&action).insert(type_name::get<Rule>())
@@ -426,24 +405,24 @@ module zing_framework::token {
         platform_policy.default_rules.get_mut(&action).remove(&type_name::get<Rule>())
     }
 
-    public fun remove_rule_for_action<T, Rule: drop>(
+    public fun remove_rule_for_action<P, Rule: drop>(
         platform_policy: &mut PlatFormPolicy,
         _cap: &PlatformCap,
         action: String,
     ) {
-        platform_policy.policy_rules_of_mut<T>().get_mut(&action).insert(type_name::get<Rule>())
+        platform_policy.policy_rules_of_mut<P>().get_mut(&action).insert(type_name::get<Rule>())
     }
 
     // === Protected: Treasury Management ===
 
-    /// Mint a `Token` with a given `amount` using the `TreasuryCap`.
-    public fun mint<T>(cap: &mut TreasuryCap<T>, amount: u64, ctx: &mut TxContext): Token<T> {
+    /// Mint a `Token` with a given `amount` using the `TokenCap`.
+    public fun mint<P>(cap: &mut TokenCap<P>, amount: u64, ctx: &mut TxContext): Token<P> {
         let balance = cap.supply_mut().increase_supply(amount);
         Token { id: object::new(ctx), balance }
     }
 
-    /// Burn a `Token` using the `TreasuryCap`.
-    public fun burn<T>(cap: &mut TreasuryCap<T>, token: Token<T>) {
+    /// Burn a `Token` using the `TokenCap`.
+    public fun burn<P>(cap: &mut TokenCap<P>, token: Token<P>) {
         let Token { id, balance } = token;
         cap.supply_mut().decrease_supply(balance);
         id.delete();
@@ -451,38 +430,29 @@ module zing_framework::token {
 
     // === View Functions ===
 
-    public fun value<T>(t: &Token<T>): u64 {
+    public fun value<P>(t: &Token<P>): u64 {
         t.balance.value()
     }
 
     // === Action Request Fields ==
 
     /// The Action in the `ActionRequest`.
-    public fun action<T>(self: &ActionRequest<T>): String { self.name }
+    public fun action<P>(self: &ActionRequest<P>): String { self.name }
 
     /// Amount of the `ActionRequest`.
-    public fun amount<T>(self: &ActionRequest<T>): u64 { self.amount }
+    public fun amount<P>(self: &ActionRequest<P>): u64 { self.amount }
 
     /// Sender of the `ActionRequest`.
-    public fun sender<T>(self: &ActionRequest<T>): address { self.sender }
+    public fun sender<P>(self: &ActionRequest<P>): address { self.sender }
 
     /// Recipient of the `ActionRequest`.
-    public fun recipient<T>(self: &ActionRequest<T>): Option<address> {
+    public fun recipient<P>(self: &ActionRequest<P>): Option<address> {
         self.recipient
     }
 
     /// Approvals of the `ActionRequest`.
-    public fun approvals<T>(self: &ActionRequest<T>): VecSet<TypeName> {
+    public fun approvals<P>(self: &ActionRequest<P>): VecSet<TypeName> {
         self.approvals
-    }
-
-    /// Burned balance of the `ActionRequest`.
-    public fun spent<T>(self: &ActionRequest<T>): Option<u64> {
-        if (self.spent_balance.is_some()) {
-            option::some(self.spent_balance.borrow().value())
-        } else {
-            option::none()
-        }
     }
 
     // === Package Functions ===
