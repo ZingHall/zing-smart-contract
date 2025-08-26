@@ -17,6 +17,7 @@ module zing_framework::token {
     const EBalanceTooLow: u64 = 3;
     const ENotZero: u64 = 4;
     const ENoConfig: u64 = 6;
+    const EExceedSupplyLimit: u64 = 7;
 
     // === Constants ===
 
@@ -83,7 +84,7 @@ module zing_framework::token {
         supply: Supply<P>,
         /// The total max supply allowed to exist at any time that was issued
         /// upon creation of Asset T
-        total_supply: u64,
+        supply_limit: u64,
     }
 
     public fun supply<P>(token_cap: &TokenCap<P>): &Supply<P> {
@@ -131,6 +132,10 @@ module zing_framework::token {
         transfer::public_transfer(PlatformCap { id: object::new(ctx) }, ctx.sender());
     }
 
+    public fun update_supply_limit<P>(token_cap: &mut TokenCap<P>, value: u64) {
+        token_cap.supply_limit = value;
+    }
+
     // === Public Functions ===
     /// Called by publisher to acquire Supply object after their publish
     public fun new<P>(
@@ -143,7 +148,7 @@ module zing_framework::token {
         let token_cap = TokenCap {
             id: object::new(ctx),
             supply: treasury_cap.treasury_into_supply(),
-            total_supply: 0,
+            supply_limit: 0,
         };
 
         // add policy
@@ -418,6 +423,8 @@ module zing_framework::token {
     /// Mint a `Token` with a given `amount` using the `TokenCap`.
     public fun mint<P>(cap: &mut TokenCap<P>, amount: u64, ctx: &mut TxContext): Token<P> {
         let balance = cap.supply_mut().increase_supply(amount);
+
+        assert!(cap.supply.supply_value() <= cap.supply_limit, EExceedSupplyLimit);
         Token { id: object::new(ctx), balance }
     }
 

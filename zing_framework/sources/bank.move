@@ -40,6 +40,7 @@ module zing_framework::bank {
         config.allowlist.remove(&type_name::get<T>())
     }
 
+    /// Each TokencCap can only create single Type of Bank, this promise each creator can only allow single asset
     public fun new<P, T>(config: &BankConfig, ptoken_cap: TokenCap<P>, ctx: &mut TxContext) {
         assert!(config.allowlist.contains(&type_name::get<T>()), ENotAllowedAssetToken);
 
@@ -63,11 +64,7 @@ module zing_framework::bank {
         bank.ptoken_cap.mint(amount, ctx)
     }
 
-    public fun burn<P, T>(
-        bank: &mut Bank<P, T>,
-        ptoken: Token<T>,
-        ctx: &mut TxContext,
-    ): Balance<T> {
+    public fun burn<P, T>(bank: &mut Bank<P, T>, ptoken: Token<P>): Balance<T> {
         let amount = ptoken.value();
         // TODO: withdraw from vault
         bank.ptoken_cap.burn(ptoken);
