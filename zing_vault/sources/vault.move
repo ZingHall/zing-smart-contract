@@ -95,13 +95,13 @@ module zing_vault::vault {
     /* ================= VaultAccess ================= */
 
     /// Strategies store this and it gives them access to deposit and withdraw
-    /// from the vault
+    /// from the vault, this struct can not be borrowed out (even immutably)
     #[allow(lint(missing_key))]
     public struct VaultAccess has store {
         id: UID,
     }
 
-    public(package) fun vault_access_id(access: &VaultAccess): ID {
+    public fun vault_access_id(access: &VaultAccess): ID {
         object::uid_to_inner(&access.id)
     }
 
@@ -112,7 +112,7 @@ module zing_vault::vault {
         returned_balance: Balance<T>,
     }
 
-    public(package) fun new_strategy_removal_ticket<T, YT>(
+    public fun new_strategy_removal_ticket<T, YT>(
         access: VaultAccess,
         returned_balance: Balance<T>,
     ): StrategyRemovalTicket<T, YT> {
@@ -136,7 +136,7 @@ module zing_vault::vault {
         lp_to_burn: Balance<YT>,
     }
 
-    public(package) fun withdraw_ticket_to_withdraw<T, YT>(
+    public fun withdraw_ticket_to_withdraw<T, YT>(
         ticket: &WithdrawTicket<T, YT>,
         access: &VaultAccess,
     ): u64 {
@@ -161,7 +161,7 @@ module zing_vault::vault {
         inner: VecMap<ID, RebalanceInfo>,
     }
 
-    public(package) fun rebalance_amounts_get(
+    public fun rebalance_amounts_get(
         amounts: &RebalanceAmounts,
         access: &VaultAccess,
     ): (u64, u64) {
@@ -310,8 +310,8 @@ module zing_vault::vault {
             tlb::withdraw_all(&mut vault.time_locked_profit, clock),
         );
     }
-
-    public(package) fun add_strategy<T, YT>(
+    
+    public fun add_strategy<T, YT>(
         _cap: &PlatformCap,
         vault: &mut Vault<T, YT>,
         ctx: &mut TxContext,
@@ -779,7 +779,7 @@ module zing_vault::vault {
     /* ================= strategy operations ================= */
 
     /// Makes the strategy deposit the withdrawn balance into the `WithdrawTicket`.
-    public(package) fun strategy_withdraw_to_ticket<T, YT>(
+    public fun strategy_withdraw_to_ticket<T, YT>(
         ticket: &mut WithdrawTicket<T, YT>,
         access: &VaultAccess,
         balance: Balance<T>,
@@ -959,7 +959,7 @@ module zing_vault::vault {
     }
 
     /// Strategies call this to repay loaned amounts.
-    public(package) fun strategy_repay<T, YT>(
+    public fun strategy_repay<T, YT>(
         vault: &mut Vault<T, YT>,
         access: &VaultAccess,
         balance: Balance<T>,
@@ -977,7 +977,7 @@ module zing_vault::vault {
 
     /// Strategies call this to borrow additional funds from the vault. Always returns
     /// exact amount requested or aborts.
-    public(package) fun strategy_borrow<T, YT>(
+    public fun strategy_borrow<T, YT>(
         vault: &mut Vault<T, YT>,
         access: &VaultAccess,
         amount: u64,
@@ -995,7 +995,7 @@ module zing_vault::vault {
         balance
     }
 
-    public(package) fun strategy_hand_over_profit<T, YT>(
+    public fun strategy_hand_over_profit<T, YT>(
         vault: &mut Vault<T, YT>,
         access: &VaultAccess,
         profit: Balance<T>,
