@@ -5,6 +5,7 @@ module zing_framework::token {
         balance::{Self, Balance, Supply},
         coin::TreasuryCap,
         dynamic_field as df,
+        event::emit,
         package,
         vec_map::{Self, VecMap},
         vec_set::{Self, VecSet}
@@ -38,12 +39,28 @@ module zing_framework::token {
         transfer_str.to_ascii_string()
     }
 
+    // === Events ===
+    public struct MintEvent<phantom P> has copy, drop, store {
+        owner: address,
+        amount: u64,
+    }
+
+    public struct BurnEvent<phantom P> has copy, drop, store {
+        owner: address,
+        amount: u64,
+    }
+
     // === Structs ===
     // OTW
     public struct TOKEN has drop {}
 
     public struct PlatformCap has key, store {
         id: UID,
+    }
+
+    #[test_only]
+    public fun creat_platform_cap_for_testing(ctx: &mut TxContext): PlatformCap {
+        PlatformCap { id: object::new(ctx) }
     }
 
     /// Shared object object
@@ -80,11 +97,17 @@ module zing_framework::token {
 
     public struct TokenCap<phantom P> has key, store {
         id: UID,
+        /// we should prevent any case that TokenCap transferred to the address where is not owner
+        owner: address,
         /// The current circulating supply
         supply: Supply<P>,
         /// The total max supply allowed to exist at any time that was issued
         /// upon creation of Asset T
         supply_limit: u64,
+    }
+
+    public fun owner<P>(token_cap: &TokenCap<P>): address {
+        token_cap.owner
     }
 
     public fun supply<P>(token_cap: &TokenCap<P>): &Supply<P> {
@@ -138,16 +161,16 @@ module zing_framework::token {
 
     // === Public Functions ===
     /// Called by publisher to acquire Supply object after their publish
-    public fun new<P>(
+    public(package) fun new<P>(
         platform_policy: &mut PlatFormPolicy,
         // we use TreasuryCap to guarantee one-time-witness
-        treasury_cap: TreasuryCap<P>,
+        supply: Supply<P>,
         ctx: &mut TxContext,
     ): TokenCap<P> {
-        assert!(treasury_cap.total_supply() == 0, ENonZeroSupply);
         let token_cap = TokenCap {
             id: object::new(ctx),
-            supply: treasury_cap.treasury_into_supply(),
+            owner: ctx.sender(),
+            supply,
             supply_limit: 0,
         };
 
@@ -167,6 +190,9 @@ module zing_framework::token {
     public fun transfer<P>(t: Token<P>, recipient: address, ctx: &mut TxContext): ActionRequest<P> {
         let amount = t.balance.value();
         transfer::transfer(t, recipient);
+
+        emit(BurnEvent<P> { owner: ctx.sender(), amount });
+        emit(MintEvent<P> { owner: recipient, amount });
 
         new_request(
             transfer_action(),
@@ -425,14 +451,17 @@ module zing_framework::token {
         let balance = cap.supply_mut().increase_supply(amount);
 
         assert!(cap.supply.supply_value() <= cap.supply_limit, EExceedSupplyLimit);
+        emit(MintEvent<P> { owner: ctx.sender(), amount });
         Token { id: object::new(ctx), balance }
     }
 
     /// Burn a `Token` using the `TokenCap`.
-    public fun burn<P>(cap: &mut TokenCap<P>, token: Token<P>) {
+    public fun burn<P>(cap: &mut TokenCap<P>, token: Token<P>, ctx: &TxContext) {
         let Token { id, balance } = token;
-        cap.supply_mut().decrease_supply(balance);
+        let amount = cap.supply_mut().decrease_supply(balance);
         id.delete();
+
+        emit(BurnEvent<P> { owner: ctx.sender(), amount })
     }
 
     // === View Functions ===

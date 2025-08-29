@@ -1,3 +1,6 @@
+/*
+ * @dev All credits to kunalbas - https://github.com/kunalabs-io/sui-smart-contracts/blob/master/kai/sav/core/sources/vault.move
+ */
 module zing_vault::vault {
     use std::u64;
     use sui::{
@@ -6,10 +9,10 @@ module zing_vault::vault {
         coin::{Self, TreasuryCap},
         dynamic_field as df,
         event,
-        package::UpgradeCap,
         vec_map::{Self, VecMap},
         vec_set
     };
+    use zing_framework::token::{Self, PlatformCap};
     use zing_vault::{
         time_locked_balance::{Self as tlb, TimeLockedBalance},
         util::{muldiv, muldiv_round_up, timestamp_sec}
@@ -59,9 +62,6 @@ module zing_vault::vault {
     /// Migration is not an upgrade
     const ENotUpgrade: u64 = 10;
 
-    /// UpgradeCap object doesn't belong to this package
-    const EInvalidUpgradeCap: u64 = 11;
-
     /// Treasury supply has to be 0
     const ETreasurySupplyPositive: u64 = 12;
 
@@ -90,13 +90,6 @@ module zing_vault::vault {
         strategy_id: ID,
         to_withdraw: u64,
         withdrawn: u64,
-    }
-
-    /* ================= AdminCap ================= */
-
-    /// There can only ever be one `AdminCap` for a `Vault`
-    public struct AdminCap<phantom YT> has key, store {
-        id: UID,
     }
 
     /* ================= VaultAccess ================= */
@@ -187,7 +180,7 @@ module zing_vault::vault {
 
     /* ================= Vault ================= */
 
-    public struct Vault<phantom T, phantom YT> has key {
+    public struct Vault<phantom T, phantom YT> has key, store {
         id: UID,
         /// balance that's not allocated to any strategy
         free_balance: Balance<T>,
@@ -212,10 +205,7 @@ module zing_vault::vault {
         version: u64,
     }
 
-    public(package) fun new<T, YT>(
-        lp_treasury: TreasuryCap<YT>,
-        ctx: &mut TxContext,
-    ): AdminCap<YT> {
+    public fun new<T, YT>(_cap: &PlatformCap, lp_treasury: TreasuryCap<YT>, ctx: &mut TxContext) {
         assert!(coin::total_supply(&lp_treasury) == 0, ETreasurySupplyPositive);
 
         let vault = Vault<T, YT> {
@@ -233,28 +223,6 @@ module zing_vault::vault {
             version: MODULE_VERSION,
         };
         transfer::share_object(vault);
-
-        // since there can be only one `TreasuryCap<YT>` for type `YT`, there can be only
-        // one `Vault<T, YT>` and `AdminCap<YT>` for type `YT` as well.
-        let admin_cap = AdminCap<YT> {
-            id: object::new(ctx),
-        };
-        admin_cap
-    }
-
-    fun assert_upgrade_cap(cap: &UpgradeCap) {
-        let cap_id = @0x816949d764f3285c0420e9375c2594ca01355d1e05670b242ff5bfcf4c5fc958;
-        assert!(object::id_address(cap) == cap_id, EInvalidUpgradeCap);
-    }
-
-    // Creates a new `Vault` using the package's `UpgradeCap` as authority.
-    public fun new_with_upgrade_cap<T, YT>(
-        cap: &UpgradeCap,
-        lp_treasury: TreasuryCap<YT>,
-        ctx: &mut TxContext,
-    ): AdminCap<YT> {
-        assert_upgrade_cap(cap);
-        new<T, YT>(lp_treasury, ctx)
     }
 
     fun assert_version<T, YT>(vault: &Vault<T, YT>) {
@@ -295,7 +263,7 @@ module zing_vault::vault {
     /* ================= admin ================= */
 
     entry fun set_tvl_cap<T, YT>(
-        _cap: &AdminCap<YT>,
+        _cap: &PlatformCap,
         vault: &mut Vault<T, YT>,
         tvl_cap: Option<u64>,
     ) {
@@ -304,7 +272,7 @@ module zing_vault::vault {
     }
 
     entry fun set_profit_unlock_duration_sec<T, YT>(
-        _cap: &AdminCap<YT>,
+        _cap: &PlatformCap,
         vault: &mut Vault<T, YT>,
         profit_unlock_duration_sec: u64,
     ) {
@@ -313,7 +281,7 @@ module zing_vault::vault {
     }
 
     entry fun set_performance_fee_bps<T, YT>(
-        _cap: &AdminCap<YT>,
+        _cap: &PlatformCap,
         vault: &mut Vault<T, YT>,
         performance_fee_bps: u64,
     ) {
@@ -323,7 +291,7 @@ module zing_vault::vault {
     }
 
     public fun withdraw_performance_fee<T, YT>(
-        _cap: &AdminCap<YT>,
+        _cap: &PlatformCap,
         vault: &mut Vault<T, YT>,
         amount: u64,
     ): Balance<YT> {
@@ -332,7 +300,7 @@ module zing_vault::vault {
     }
 
     entry fun pull_unlocked_profits_to_free_balance<T, YT>(
-        _cap: &AdminCap<YT>,
+        _cap: &PlatformCap,
         vault: &mut Vault<T, YT>,
         clock: &Clock,
     ) {
@@ -344,7 +312,7 @@ module zing_vault::vault {
     }
 
     public(package) fun add_strategy<T, YT>(
-        _cap: &AdminCap<YT>,
+        _cap: &PlatformCap,
         vault: &mut Vault<T, YT>,
         ctx: &mut TxContext,
     ): VaultAccess {
@@ -374,7 +342,7 @@ module zing_vault::vault {
     }
 
     entry fun set_strategy_max_borrow<T, YT>(
-        _cap: &AdminCap<YT>,
+        _cap: &PlatformCap,
         vault: &mut Vault<T, YT>,
         strategy_id: ID,
         max_borrow: Option<u64>,
@@ -386,7 +354,7 @@ module zing_vault::vault {
     }
 
     entry fun set_strategy_target_alloc_weights_bps<T, YT>(
-        _cap: &AdminCap<YT>,
+        _cap: &PlatformCap,
         vault: &mut Vault<T, YT>,
         ids: vector<ID>,
         weights_bps: vector<u64>,
@@ -416,7 +384,7 @@ module zing_vault::vault {
     }
 
     public fun remove_strategy<T, YT>(
-        cap: &AdminCap<YT>,
+        cap: &PlatformCap,
         vault: &mut Vault<T, YT>,
         ticket: StrategyRemovalTicket<T, YT>,
         ids_for_weights: vector<ID>,
@@ -455,7 +423,7 @@ module zing_vault::vault {
     }
 
     entry fun set_withdrawals_disabled<T, YT>(
-        _cap: &AdminCap<YT>,
+        _cap: &PlatformCap,
         vault: &mut Vault<T, YT>,
         withdrawals_disabled: bool,
     ) {
@@ -478,7 +446,7 @@ module zing_vault::vault {
         }
     }
 
-    entry fun migrate<T, YT>(_cap: &AdminCap<YT>, vault: &mut Vault<T, YT>) {
+    entry fun migrate<T, YT>(_cap: &PlatformCap, vault: &mut Vault<T, YT>) {
         assert!(vault.version < MODULE_VERSION, ENotUpgrade);
         vault.version = MODULE_VERSION;
     }
@@ -780,6 +748,32 @@ module zing_vault::vault {
         let balance = balance::split(balance, yt_amt);
 
         withdraw(vault, balance, clock)
+    }
+
+    public fun to_underlying_amount<T, YT>(
+        vault: &Vault<T, YT>,
+        t_amount: u64,
+        clock: &Clock,
+    ): u64 {
+        let total_available_balance = vault.total_available_balance(clock);
+        if (total_available_balance == 0) return 0;
+        muldiv_round_up(
+            t_amount,
+            vault.total_yt_supply(),
+            total_available_balance,
+        )
+    }
+
+    public fun from_underlying_amount<T, YT>(
+        vault: &Vault<T, YT>,
+        yt_amount: u64,
+        clock: &Clock,
+    ): u64 {
+        muldiv(
+            yt_amount,
+            vault.total_available_balance(clock),
+            vault.total_yt_supply(),
+        )
     }
 
     /* ================= strategy operations ================= */
@@ -2628,7 +2622,7 @@ module zing_vault::vault {
         let mut clock = clock::create_for_testing(&mut ctx);
         clock::increment_for_testing(&mut clock, 1000 * 1000);
 
-        let admin_cap = AdminCap<VAULT> { id: object::new(&mut ctx) };
+        let platform_cap = token::creat_platform_cap_for_testing(&mut ctx);
         let ticket = new_strategy_removal_ticket(vault_access_b, mint_a_balance(10000));
         let mut ids_for_weights = vector::empty();
         vector::push_back(&mut ids_for_weights, id_a);
@@ -2636,7 +2630,7 @@ module zing_vault::vault {
         let mut new_weights = vector::empty();
         vector::push_back(&mut new_weights, 30_00);
         vector::push_back(&mut new_weights, 70_00);
-        remove_strategy(&admin_cap, &mut vault, ticket, ids_for_weights, new_weights, &clock);
+        remove_strategy(&platform_cap, &mut vault, ticket, ids_for_weights, new_weights, &clock);
 
         assert!(vec_map::size(&vault.strategies) == 2, 0);
         assert!(vec_map::get(&vault.strategies, &id_a).target_alloc_weight_bps == 30_00, 0);
@@ -2648,7 +2642,7 @@ module zing_vault::vault {
 
         sui::test_utils::destroy(vault);
         sui::test_utils::destroy(lp);
-        sui::test_utils::destroy(admin_cap);
+        sui::test_utils::destroy(platform_cap);
         sui::test_utils::destroy(vault_access_a);
         sui::test_utils::destroy(vault_access_c);
         sui::test_utils::destroy(clock);
