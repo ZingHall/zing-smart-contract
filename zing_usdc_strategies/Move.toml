@@ -8,21 +8,13 @@ edition = "2024.beta" # edition = "legacy" to use legacy (pre-2024) Move
 ZingFramework = { local = "../zing_framework/" }
 ZingVault = { local = "../zing_vault/" }
 ZingBank = { local = "../zing_bank/" }
-ScallopProtocol = { git = "https://github.com/scallop-io/sui-lending-protocol.git", subdir = "contracts/protocol", rev = "main" }
-# For remote import, use the `{ git = "...", subdir = "...", rev = "..." }`.
-# Revision can be a branch, a tag, and a commit hash.
-# MyRemotePackage = { git = "https://some.remote/host.git", subdir = "remote/path", rev = "main" }
-
-# For local dependencies use `local = path`. Path is relative to the package root
-# Local = { local = "../path/to" }
-
-# To resolve a version conflict and force a specific version for dependency
-# override use `override = true`
-# Override = { local = "../conflicting/version", override = true }
+ScallopProtocol = { git = "https://github.com/scallop-io/sui-lending-protocol.git",  subdir = "contracts/protocol", rev = "main" }
+lending_core = { git = "https://github.com/Jarekkkkk/navi-interface.git", subdir = "lending_core", rev = "main" }
+oracle = { git = "https://github.com/Jarekkkkk/navi-interface.git", subdir = "oracle", rev = "main" }
 
 [addresses]
-zusdc = "0x0"
-
+zusdc = "0x00"
+math_navi = "0xad013d5fde39e15eabda32b3dbdafd67dac32b798ce63237c27a8f73339b9b6f"
 # Named addresses will be accessible in Move as `@name`. They're also exported:
 # for example, `std = "0x1"` is exported by the Standard Library.
 # alice = "0xA11CE"

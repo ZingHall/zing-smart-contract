@@ -179,6 +179,7 @@ module zing_bank::patronage {
         position_mut.position_balance_of_mut<T, P, YT>().join(lp_balance);
     }
 
+    // TODO: when can we recall
     public macro fun recall_from_vault<$T, $P, $YT>(
         $self: &mut Patronage<$T>,
         $vault: &mut Vault<$T, $YT>,
@@ -191,12 +192,12 @@ module zing_bank::patronage {
         let amount_to_recall = $amount_to_recall;
         let clock = $clock;
 
-        let position_mut = self.position_mut<$T, $P>();
-        assert!(position_mut.position_balance_of<$T, $P, $YT>().value() > 0, EZeroAsset);
+        let position = self.position<$T, $P>();
+        assert!(position.position_balance_of<$T, $P, $YT>().value() > 0, EZeroAsset);
 
         let mut withdraw_ticket = vault.withdraw_t_amt(
             amount_to_recall,
-            position_mut.position_balance_of_mut<$T, $P, $YT>(),
+            self.position_mut<$T, $P>().position_balance_of_mut<$T, $P, $YT>(),
             clock,
         );
 
@@ -205,7 +206,7 @@ module zing_bank::patronage {
 
         let withdrawal_bal = vault.redeem_withdraw_ticket(withdraw_ticket);
 
-        position_mut.funds_available.join(withdrawal_bal);
+        self.position_mut<$T, $P>().funds_available.join(withdrawal_bal);
     }
 
     public fun collect_reward<T, P, YT>(
@@ -217,7 +218,7 @@ module zing_bank::patronage {
     ): Coin<T> {
         let position_mut = self.position_mut<T, P>();
         let surplus = position_mut.position_value(vault, clock) - position_mut.deposited_token;
-
+        
         coin::from_balance(position_mut.funds_available.split(surplus), ctx)
     }
 }
