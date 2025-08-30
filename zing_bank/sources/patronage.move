@@ -17,6 +17,7 @@ module zing_bank::patronage {
     const EPositiveDeposit: u64 = 101;
     const ERemainingAsset: u64 = 102;
     const EZeroAsset: u64 = 103;
+    const EInsufficientRecallWithdrawal: u64 = 104;
 
     // === Constants ===
 
@@ -179,34 +180,42 @@ module zing_bank::patronage {
         position_mut.position_balance_of_mut<T, P, YT>().join(lp_balance);
     }
 
-    // TODO: when can we recall
-    public macro fun recall_from_vault<$T, $P, $YT>(
-        $self: &mut Patronage<$T>,
-        $vault: &mut Vault<$T, $YT>,
-        $amount_to_recall: u64,
-        $clock: &Clock,
-        $withdraw_from_strategies: |&mut WithdrawTicket<$T, $YT>|,
-    ) {
-        let self = $self;
-        let vault = $vault;
-        let amount_to_recall = $amount_to_recall;
-        let clock = $clock;
+    public struct RecallReceipt<phantom T, phantom P, phantom YT> {
+        withdrawal: u64,
+    }
 
-        let position = self.position<$T, $P>();
-        assert!(position.position_balance_of<$T, $P, $YT>().value() > 0, EZeroAsset);
+    public fun start_recall<T, P, YT>(
+        self: &mut Patronage<T>,
+        vault: &mut Vault<T, YT>,
+        amount_to_recall: u64,
+        clock: &Clock,
+    ):(WithdrawTicket<T, YT>, RecallReceipt<T, P, YT>){
+        let position = self.position<T, P>();
+        assert!(position.position_balance_of<T, P, YT>().value() > 0, EZeroAsset);
 
-        let mut withdraw_ticket = vault.withdraw_t_amt(
+        let withdraw_ticket = vault.withdraw_t_amt(
             amount_to_recall,
-            self.position_mut<$T, $P>().position_balance_of_mut<$T, $P, $YT>(),
+            self.position_mut<T, P>().position_balance_of_mut<T, P, YT>(),
             clock,
         );
 
-        // collect withdrawal from individual strategies
-        $withdraw_from_strategies(&mut withdraw_ticket);
+        let receipt = RecallReceipt{ withdrawal: amount_to_recall };
 
-        let withdrawal_bal = vault.redeem_withdraw_ticket(withdraw_ticket);
+        (withdraw_ticket, receipt)
+    }
 
-        self.position_mut<$T, $P>().funds_available.join(withdrawal_bal);
+    public fun settle_recall<T, P, YT>(
+        self: &mut Patronage<T>,
+        receipt: RecallReceipt<T, P, YT>,
+        withdrawal_bal: Balance<T>,
+    ) {
+        let RecallReceipt{
+            withdrawal
+        } = receipt;
+
+        assert!(withdrawal_bal.value() >= withdrawal, EInsufficientRecallWithdrawal);
+
+        self.position_mut<T, P>().funds_available.join(withdrawal_bal);
     }
 
     public fun collect_reward<T, P, YT>(
@@ -218,7 +227,7 @@ module zing_bank::patronage {
     ): Coin<T> {
         let position_mut = self.position_mut<T, P>();
         let surplus = position_mut.position_value(vault, clock) - position_mut.deposited_token;
-        
+
         coin::from_balance(position_mut.funds_available.split(surplus), ctx)
     }
 }
