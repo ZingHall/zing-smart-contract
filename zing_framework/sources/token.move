@@ -21,6 +21,9 @@ module zing_framework::token {
     const EExceedSupplyLimit: u64 = 7;
 
     // === Constants ===
+    const DECIMAL: u8 = 6;
+
+    public fun decimal(): u8 { DECIMAL }
 
     // Actions
     /// A Tag for the `spend` action.
@@ -159,27 +162,23 @@ module zing_framework::token {
         token_cap.supply_limit = value;
     }
 
-    // === Public Functions ===
-    /// Called by publisher to acquire Supply object after their publish
-    public(package) fun new<P>(
-        platform_policy: &mut PlatFormPolicy,
-        // we use TreasuryCap to guarantee one-time-witness
-        supply: Supply<P>,
-        ctx: &mut TxContext,
-    ): TokenCap<P> {
-        let token_cap = TokenCap {
-            id: object::new(ctx),
-            owner: ctx.sender(),
-            supply,
-            supply_limit: 0,
-        };
-
-        // add policy
+    public fun add_policy<P>(platform_policy: &mut PlatFormPolicy, _cap: &PlatformCap) {
         df::add(
             &mut platform_policy.id,
             PolicyRulesKey<P> {},
             vec_map::empty<String, VecSet<TypeName>>(),
         );
+    }
+
+    // === Public Functions ===
+    /// Called by publisher to acquire Supply object after their publish
+    public(package) fun new<P>(supply: Supply<P>, ctx: &mut TxContext): TokenCap<P> {
+        let token_cap = TokenCap {
+            id: object::new(ctx),
+            owner: ctx.sender(),
+            supply,
+            supply_limit: 100 * 10_u64.pow(decimal()), // 100 U
+        };
 
         token_cap
     }

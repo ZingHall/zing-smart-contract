@@ -160,6 +160,10 @@ module zing_bank::patronage {
         position_mut.funds_available.split(amount)
     }
 
+    public fun donate<T, P>(self: &mut Patronage<T>, donation: Balance<T>) {
+        self.position_mut<T, P>().funds_available.join(donation);
+    }
+
     public fun deploy_to_vault<T, P, YT>(
         self: &mut Patronage<T>,
         vault: &mut Vault<T, YT>,
@@ -189,7 +193,7 @@ module zing_bank::patronage {
         vault: &mut Vault<T, YT>,
         amount_to_recall: u64,
         clock: &Clock,
-    ):(WithdrawTicket<T, YT>, RecallReceipt<T, P, YT>){
+    ): (WithdrawTicket<T, YT>, RecallReceipt<T, P, YT>) {
         let position = self.position<T, P>();
         assert!(position.position_balance_of<T, P, YT>().value() > 0, EZeroAsset);
 
@@ -199,7 +203,7 @@ module zing_bank::patronage {
             clock,
         );
 
-        let receipt = RecallReceipt{ withdrawal: amount_to_recall };
+        let receipt = RecallReceipt { withdrawal: amount_to_recall };
 
         (withdraw_ticket, receipt)
     }
@@ -209,8 +213,8 @@ module zing_bank::patronage {
         receipt: RecallReceipt<T, P, YT>,
         withdrawal_bal: Balance<T>,
     ) {
-        let RecallReceipt{
-            withdrawal
+        let RecallReceipt {
+            withdrawal,
         } = receipt;
 
         assert!(withdrawal_bal.value() >= withdrawal, EInsufficientRecallWithdrawal);

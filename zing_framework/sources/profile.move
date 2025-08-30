@@ -1,6 +1,6 @@
 module zing_framework::profile {
-    use sui::{balance::{Self, Supply}, coin::TreasuryCap, package, table::{Self, Table}};
-    use zing_framework::token::{Self, PlatFormPolicy};
+    use sui::{balance::{Self, Supply}, package, table::{Self, Table}};
+    use zing_framework::token;
 
     // === Errors ===
     const EBadWitness: u64 = 1;
@@ -61,7 +61,6 @@ module zing_framework::profile {
     #[allow(lint(self_transfer))]
     public fun register<P>(
         member_reg: &mut MemberReg,
-        platform_policy: &mut PlatFormPolicy,
         eligibility: ProfileEligibility<P>,
         ctx: &mut TxContext,
     ) {
@@ -77,7 +76,7 @@ module zing_framework::profile {
         } = eligibility;
         object::delete(id);
 
-        let token_cap = token::new(platform_policy, supply, ctx);
+        let token_cap = token::new(supply, ctx);
 
         transfer::transfer(profile, ctx.sender());
         transfer::public_transfer(token_cap, ctx.sender());
