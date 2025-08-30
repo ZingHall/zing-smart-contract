@@ -31,10 +31,8 @@ module zusdc::scallop {
 
     // === Public Functions ===
 
-    // === View Functions ===
-
     // === Admin Functions ===
-    public entry fun new<T>(_cap: &PlatformCap, ctx: &mut TxContext) {
+    public fun new<T>(_cap: &PlatformCap, ctx: &mut TxContext) {
         let strategy = ScallopStrategy<T> {
             id: object::new(ctx),
             vault_access: option::none(),
@@ -80,13 +78,14 @@ module zusdc::scallop {
         self.vault_access.extract().new_strategy_removal_ticket(total_balance.into_balance())
     }
 
-    // === Package Functions ===
+    // === Public Functions ===
     public fun rebalance<T, YT>(
         self: &mut ScallopStrategy<T>,
         config: &StrategyConfig,
         _cap: &PlatformCap,
         vault: &mut Vault<T, YT>,
         amounts: &RebalanceAmounts,
+        // scallop params
         version: &Version,
         market: &mut Market,
         clock: &Clock,
@@ -184,7 +183,7 @@ module zusdc::scallop {
         self.underlying_nominal_value = self.underlying_nominal_value - to_withdraw;
     }
 
-    // === Private Functions ===
+    // === View Functions ===
     public fun to_scoin(
         version: &Version,
         market: &mut Market,
@@ -259,5 +258,14 @@ module zusdc::scallop {
             balance_sheet,
         );
         (cash, debt, revenue, market_coin_supply)
+    }
+
+    public fun total_collateral<T>(
+        self: &ScallopStrategy<T>,
+        version: &Version,
+        market: &mut Market,
+        clock: &Clock,
+    ): u64 {
+        from_scoin(version, market, type_name::get<T>(), clock, self.market_coin.value())
     }
 }
