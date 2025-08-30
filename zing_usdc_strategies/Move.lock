@@ -207,3 +207,16 @@ source = { git = "https://github.com/Jarekkkkk/navi-interface.git", rev = "main"
 dependencies = [
   { id = "Sui", name = "Sui" },
 ]
+
+[move.toolchain-version]
+compiler-version = "1.55.0"
+edition = "2024.beta"
+flavor = "sui"
+
+[env]
+
+[env.mainnet]
+chain-id = "35834a8a"
+original-published-id = "0x21ad4f181d0ff8c73e119b070c6821edd86ca0456da6d038da17afb628128ec8"
+latest-published-id = "0x21ad4f181d0ff8c73e119b070c6821edd86ca0456da6d038da17afb628128ec8"
+published-version = "1"
