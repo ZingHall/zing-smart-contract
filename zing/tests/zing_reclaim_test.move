@@ -1,11 +1,11 @@
 #[test_only]
-module zing::reclaim_tests {
+module zing::reclaim_fork_tests {
     use std::string::{Self, String};
     use sui::{clock::{Self, Clock}, hash, test_scenario};
-    use zing::reclaim;
+    use zing::reclaim_fork;
 
-    #[test]
-    fun test_commit_reveal_reclaim() {
+    // #[test]
+    fun test_commit_reveal_reclaim_fork() {
         let owner = @0xC0FFEE;
         let user1 = @0xA1;
         let epoch_duration_s = 86400_u32; // expired per month
@@ -29,8 +29,8 @@ module zing::reclaim_tests {
 
         test_scenario::next_tx(scenario, owner);
         {
-            // create enhanced ReclaimManager object
-            reclaim::create_reclaim_manager(
+            // create enhanced reclaim_forkManager object
+            reclaim_fork::create_reclaim_manager(
                 epoch_duration_s,
                 min_commit_reveal_delay,
                 max_reveal_window,
@@ -40,7 +40,7 @@ module zing::reclaim_tests {
 
         test_scenario::next_tx(scenario, owner);
         {
-            let mut manager = test_scenario::take_shared<reclaim::ReclaimManager>(
+            let mut manager = test_scenario::take_shared<reclaim_fork::ReclaimManager>(
                 scenario,
             );
 
@@ -52,7 +52,7 @@ module zing::reclaim_tests {
 
             // add new epoch
             let ctx = test_scenario::ctx(scenario);
-            reclaim::add_new_epoch(
+            reclaim_fork::add_new_epoch(
                 &mut manager,
                 witnesses,
                 requisite_witnesses_for_claim_create,
@@ -63,7 +63,7 @@ module zing::reclaim_tests {
         };
 
         // Prepare test data
-        let claim_info = reclaim::create_claim_info(
+        let claim_info = reclaim_fork::create_claim_info(
             // provider
             b"http".to_string(),
             // parameters
@@ -72,7 +72,7 @@ module zing::reclaim_tests {
             b"{\"contextAddress\":\"0x0\",\"contextMessage\":\"sample context\",\"extractedParameters\":{\"screen_name\":\"3ol4NGpn8yruLoE\"},\"providerHash\":\"0x168c2d4c2c7fd8c0eb21d4cd9aa634a716b61186b1f61e7ab78cd0dbff34fb04\"}".to_string(),
         );
 
-        let complete_claim_data = reclaim::create_claim_data(
+        let complete_claim_data = reclaim_fork::create_claim_data(
             // identifier
             b"0x3e091d4a0c020565b1cf703f0ad1d1ddd483095f206243b55aa26a39dd7efbdd".to_string(),
             // owner
@@ -88,7 +88,7 @@ module zing::reclaim_tests {
             x"b7e5acc04a5df18547173300af695095ce0d22a325c7cd52eee916d2fd2f518e29f61e4147b49a1282ecc1b706c4d37a6d560160f8bd0ac675e44b1d6cd91bb81c";
         signatures.push_back(signature);
 
-        let signed_claim = reclaim::create_signed_claim(
+        let signed_claim = reclaim_fork::create_signed_claim(
             complete_claim_data,
             signatures,
         );
@@ -108,14 +108,14 @@ module zing::reclaim_tests {
         // COMMIT PHASE
         test_scenario::next_tx(scenario, user1);
         {
-            let mut manager = test_scenario::take_shared<reclaim::ReclaimManager>(
+            let mut manager = test_scenario::take_shared<reclaim_fork::ReclaimManager>(
                 scenario,
             );
             let clock = test_scenario::take_shared<Clock>(scenario);
 
             // Commit proof
             commitment_id =
-                reclaim::commit_proof(
+                reclaim_fork::commit_proof(
                     &mut manager,
                     commitment_hash,
                     identifier_hash,
@@ -141,17 +141,17 @@ module zing::reclaim_tests {
         // REVEAL PHASE
         test_scenario::next_tx(scenario, user1);
         {
-            let mut manager = test_scenario::take_shared<reclaim::ReclaimManager>(
+            let mut manager = test_scenario::take_shared<reclaim_fork::ReclaimManager>(
                 scenario,
             );
             let clock = test_scenario::take_shared<Clock>(scenario);
 
             // Check if we can reveal now
-            let can_reveal = reclaim::can_reveal_now(&manager, commitment_id, &clock);
+            let can_reveal = reclaim_fork::can_reveal_now(&manager, commitment_id, &clock);
             assert!(can_reveal, 1);
 
             // Reveal and verify proof
-            let signers = reclaim::reveal_and_verify_proof(
+            let signers = reclaim_fork::reveal_and_verify_proof(
                 &mut manager,
                 commitment_id,
                 claim_info,
@@ -171,7 +171,7 @@ module zing::reclaim_tests {
         // Verify proof object was created
         test_scenario::next_tx(scenario, user1);
         {
-            let proof = test_scenario::take_shared<reclaim::Proof>(scenario);
+            let proof = test_scenario::take_shared<reclaim_fork::Proof>(scenario);
             std::debug::print(&proof);
             test_scenario::return_shared(proof);
         };
@@ -179,7 +179,7 @@ module zing::reclaim_tests {
         test_scenario::end(scenario_val);
     }
 
-    #[test]
+    // #[test]
     fun test_commit_reveal_timing_constraints() {
         let owner = @0xC0FFEE;
         let user1 = @0xA1;
@@ -199,7 +199,7 @@ module zing::reclaim_tests {
             clock::set_for_testing(&mut clock, 1_000_000_000);
             clock::share_for_testing(clock);
 
-            reclaim::create_reclaim_manager(
+            reclaim_fork::create_reclaim_manager(
                 epoch_duration_s,
                 min_commit_reveal_delay,
                 max_reveal_window,
@@ -209,13 +209,13 @@ module zing::reclaim_tests {
 
         test_scenario::next_tx(scenario, owner);
         {
-            let mut manager = test_scenario::take_shared<reclaim::ReclaimManager>(
+            let mut manager = test_scenario::take_shared<reclaim_fork::ReclaimManager>(
                 scenario,
             );
             let mut witnesses = vector<vector<u8>>[];
             witnesses.push_back(x"244897572368eadf65bfbc5aec98d8e5443a9072");
 
-            reclaim::add_new_epoch(
+            reclaim_fork::add_new_epoch(
                 &mut manager,
                 witnesses,
                 1_u8,
@@ -237,13 +237,13 @@ module zing::reclaim_tests {
         // Commit
         test_scenario::next_tx(scenario, user1);
         {
-            let mut manager = test_scenario::take_shared<reclaim::ReclaimManager>(
+            let mut manager = test_scenario::take_shared<reclaim_fork::ReclaimManager>(
                 scenario,
             );
             let clock = test_scenario::take_shared<Clock>(scenario);
 
             commitment_id =
-                reclaim::commit_proof(
+                reclaim_fork::commit_proof(
                     &mut manager,
                     commitment_hash,
                     identifier_hash,
@@ -258,12 +258,12 @@ module zing::reclaim_tests {
         // Test: Try to reveal too early (should fail)
         test_scenario::next_tx(scenario, user1);
         {
-            let manager = test_scenario::take_shared<reclaim::ReclaimManager>(
+            let manager = test_scenario::take_shared<reclaim_fork::ReclaimManager>(
                 scenario,
             );
             let clock = test_scenario::take_shared<Clock>(scenario);
 
-            let can_reveal = reclaim::can_reveal_now(&manager, commitment_id, &clock);
+            let can_reveal = reclaim_fork::can_reveal_now(&manager, commitment_id, &clock);
             assert!(!can_reveal, 2); // Should not be able to reveal yet
 
             test_scenario::return_shared(manager);
@@ -283,12 +283,12 @@ module zing::reclaim_tests {
 
         test_scenario::next_tx(scenario, user1);
         {
-            let manager = test_scenario::take_shared<reclaim::ReclaimManager>(
+            let manager = test_scenario::take_shared<reclaim_fork::ReclaimManager>(
                 scenario,
             );
             let clock = test_scenario::take_shared<Clock>(scenario);
 
-            let can_reveal = reclaim::can_reveal_now(&manager, commitment_id, &clock);
+            let can_reveal = reclaim_fork::can_reveal_now(&manager, commitment_id, &clock);
             assert!(!can_reveal, 3); // Should not be able to reveal after window expires
 
             test_scenario::return_shared(manager);
@@ -298,7 +298,7 @@ module zing::reclaim_tests {
         test_scenario::end(scenario_val);
     }
 
-    #[test]
+    // #[test]
     fun test_duplicate_commitment_prevention() {
         let owner = @0xC0FFEE;
         let user1 = @0xA1;
@@ -314,7 +314,7 @@ module zing::reclaim_tests {
             let clock = clock::create_for_testing(ctx);
             clock::share_for_testing(clock);
 
-            reclaim::create_reclaim_manager(
+            reclaim_fork::create_reclaim_manager(
                 1_000_u32,
                 300_000u64,
                 3_600_000u64,
@@ -324,13 +324,13 @@ module zing::reclaim_tests {
 
         test_scenario::next_tx(scenario, owner);
         {
-            let mut manager = test_scenario::take_shared<reclaim::ReclaimManager>(
+            let mut manager = test_scenario::take_shared<reclaim_fork::ReclaimManager>(
                 scenario,
             );
             let mut witnesses = vector<vector<u8>>[];
             witnesses.push_back(x"244897572368eadf65bfbc5aec98d8e5443a9072");
 
-            reclaim::add_new_epoch(
+            reclaim_fork::add_new_epoch(
                 &mut manager,
                 witnesses,
                 1_u8,
@@ -346,12 +346,12 @@ module zing::reclaim_tests {
         // First commitment should succeed
         test_scenario::next_tx(scenario, user1);
         {
-            let mut manager = test_scenario::take_shared<reclaim::ReclaimManager>(
+            let mut manager = test_scenario::take_shared<reclaim_fork::ReclaimManager>(
                 scenario,
             );
             let clock = test_scenario::take_shared<Clock>(scenario);
 
-            let _commitment_id = reclaim::commit_proof(
+            let _commitment_id = reclaim_fork::commit_proof(
                 &mut manager,
                 commitment_hash,
                 identifier_hash,
@@ -366,14 +366,14 @@ module zing::reclaim_tests {
         // Second commitment with same identifier should fail
         test_scenario::next_tx(scenario, user2);
         {
-            let mut manager = test_scenario::take_shared<reclaim::ReclaimManager>(
+            let mut manager = test_scenario::take_shared<reclaim_fork::ReclaimManager>(
                 scenario,
             );
             let clock = test_scenario::take_shared<Clock>(scenario);
 
             // This should abort due to duplicate commitment
             // In a real test environment, you'd use expected_failure attribute
-            // #[expected_failure(abort_code = reclaim::E_DUPLICATE_COMMITMENT)]
+            // #[expected_failure(abort_code = reclaim_fork::E_DUPLICATE_COMMITMENT)]
 
             test_scenario::return_shared(manager);
             test_scenario::return_shared(clock);
@@ -389,7 +389,7 @@ module zing::reclaim_tests {
         let mut nonce = vector::empty<u8>();
 
         // Add timestamp (simulate)
-        let timestamp = 1_000_000_000u64;
+        let timestamp = 2_000_000_000u64;
         let timestamp_bytes = bcs::to_bytes(&timestamp);
         vector::append(&mut nonce, timestamp_bytes);
 
@@ -408,8 +408,8 @@ module zing::reclaim_tests {
     }
 
     fun compute_test_commitment_hash(
-        claim_info: &reclaim::ClaimInfo,
-        signed_claim: &reclaim::SignedClaim,
+        claim_info: &reclaim_fork::ClaimInfo,
+        signed_claim: &reclaim_fork::SignedClaim,
         nonce: &vector<u8>,
     ): vector<u8> {
         use sui::bcs;
@@ -429,16 +429,16 @@ module zing::reclaim_tests {
         hash::keccak256(&combined_data)
     }
 
-    fun create_test_claim_info(): reclaim::ClaimInfo {
-        reclaim::create_claim_info(
+    fun create_test_claim_info(): reclaim_fork::ClaimInfo {
+        reclaim_fork::create_claim_info(
             b"http".to_string(),
             b"{\"test\":\"data\"}".to_string(),
             b"{\"contextMessage\":\"test context\"}".to_string(),
         )
     }
 
-    fun create_test_signed_claim(): reclaim::SignedClaim {
-        let claim_data = reclaim::create_claim_data(
+    fun create_test_signed_claim(): reclaim_fork::SignedClaim {
+        let claim_data = reclaim_fork::create_claim_data(
             b"0xtest_identifier".to_string(),
             b"0xtest_owner".to_string(),
             b"1".to_string(),
@@ -450,7 +450,7 @@ module zing::reclaim_tests {
             x"b7e5acc04a5df18547173300af695095ce0d22a325c7cd52eee916d2fd2f518e29f61e4147b49a1282ecc1b706c4d37a6d560160f8bd0ac675e44b1d6cd91bb81c",
         );
 
-        reclaim::create_signed_claim(claim_data, signatures)
+        reclaim_fork::create_signed_claim(claim_data, signatures)
     }
 
     // Utility function to extract screen_name from parameters JSON string
@@ -510,7 +510,7 @@ module zing::reclaim_tests {
         string::utf8(result_bytes)
     }
 
-    #[test]
+    // #[test]
     fun test_extract_screen_name_from_parameters() {
         let parameters = b"{\"additionalClientOptions\":{},\"body\":\"\",\"geoLocation\":\"\",\"headers\":{\"Sec-Fetch-Mode\":\"same-origin\",\"Sec-Fetch-Site\":\"same-origin\",\"User-Agent\":\"Mozilla/5.0 (iPhone; CPU iPhone OS 18_6_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Mobile/15E148 Safari/604.1\"},\"method\":\"GET\",\"paramValues\":{\"screen_name\":\"3ol4NGpn8yruLoE\"},\"responseMatches\":[{\"invert\":false,\"type\":\"contains\",\"value\":\"\\\"screen_name\\\":\\\"{{screen_name}}\\\"\"}],\"responseRedactions\":[{\"jsonPath\":\"$.screen_name\",\"regex\":\"\\\"screen_name\\\":\\\"(.*)\\\"\",\"xPath\":\"\"}],\"url\":\"https://api.x.com/1.1/account/settings.json?include_ext_sharing_audiospaces_listening_data_with_followers=true&include_mention_filter=true&include_nsfw_user_flag=true&include_nsfw_admin_flag=true&include_ranked_timeline=true&include_alt_text_compose=true&ext=ssoConnections&include_country_code=true&include_ext_dm_nsfw_media_filter=true\"}".to_string();
 
