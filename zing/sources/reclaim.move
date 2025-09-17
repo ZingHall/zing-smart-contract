@@ -170,7 +170,7 @@ module zing::reclaim {
             witnesses_num_threshold: 1,
             commitments: object_table::new(ctx),
             identifier_to_commitment: table::new(ctx),
-            max_reveal_window: ONE_MIINUTE_MILLISECOND/2,
+            max_reveal_window: ONE_MIINUTE_MILLISECOND * 10, // 10 MIN
         }
     }
 
@@ -195,6 +195,14 @@ module zing::reclaim {
         witnesses_num_threshold: u8,
     ) {
         self.witnesses_num_threshold = witnesses_num_threshold;
+    }
+
+    public fun update_max_reveal_window(
+        self: &mut ReclaimManager,
+        _cap: &AdminCap,
+        max_reveal_window: u64
+    ) {
+        self.max_reveal_window = max_reveal_window;
     }
 
     public fun cleanup_expired_commitments(
