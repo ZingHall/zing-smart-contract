@@ -36,31 +36,34 @@ module zing::reclaim_tests {
             s.return_to_sender(cap);
         };
 
+        let provider = b"http".to_ascii_string();
+        let parameters = b"{\"additionalClientOptions\":{},\"body\":\"\",\"geoLocation\":\"\",\"headers\":{\"Sec-Fetch-Mode\":\"same-origin\",\"Sec-Fetch-Site\":\"same-origin\",\"User-Agent\":\"Mozilla/5.0 (iPhone; CPU iPhone OS 18_6_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Mobile/15E148 Safari/604.1\"},\"method\":\"GET\",\"paramValues\":{\"screen_name\":\"3ol4NGpn8yruLoE\"},\"responseMatches\":[{\"invert\":false,\"type\":\"contains\",\"value\":\"\\\"screen_name\\\":\\\"{{screen_name}}\\\"\"}],\"responseRedactions\":[{\"jsonPath\":\"$.screen_name\",\"regex\":\"\\\"screen_name\\\":\\\"(.*)\\\"\",\"xPath\":\"\"}],\"url\":\"https://api.x.com/1.1/account/settings.json?include_ext_sharing_audiospaces_listening_data_with_followers=true&include_mention_filter=true&include_nsfw_user_flag=true&include_nsfw_admin_flag=true&include_ranked_timeline=true&include_alt_text_compose=true&ext=ssoConnections&include_country_code=true&include_ext_dm_nsfw_media_filter=true\"}".to_ascii_string();
+        let context = b"{\"contextAddress\":\"0x0\",\"contextMessage\":\"sample context\",\"extractedParameters\":{\"screen_name\":\"3ol4NGpn8yruLoE\"},\"providerHash\":\"0x168c2d4c2c7fd8c0eb21d4cd9aa634a716b61186b1f61e7ab78cd0dbff34fb04\"}".to_ascii_string();
+
         let claim_info = reclaim::new_claim_info(
-            // provider
-            b"http".to_ascii_string(),
-            // parameters
-            b"{\"additionalClientOptions\":{},\"body\":\"\",\"geoLocation\":\"\",\"headers\":{\"Sec-Fetch-Mode\":\"same-origin\",\"Sec-Fetch-Site\":\"same-origin\",\"User-Agent\":\"Mozilla/5.0 (iPhone; CPU iPhone OS 18_6_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Mobile/15E148 Safari/604.1\"},\"method\":\"GET\",\"paramValues\":{\"screen_name\":\"3ol4NGpn8yruLoE\"},\"responseMatches\":[{\"invert\":false,\"type\":\"contains\",\"value\":\"\\\"screen_name\\\":\\\"{{screen_name}}\\\"\"}],\"responseRedactions\":[{\"jsonPath\":\"$.screen_name\",\"regex\":\"\\\"screen_name\\\":\\\"(.*)\\\"\",\"xPath\":\"\"}],\"url\":\"https://api.x.com/1.1/account/settings.json?include_ext_sharing_audiospaces_listening_data_with_followers=true&include_mention_filter=true&include_nsfw_user_flag=true&include_nsfw_admin_flag=true&include_ranked_timeline=true&include_alt_text_compose=true&ext=ssoConnections&include_country_code=true&include_ext_dm_nsfw_media_filter=true\"}".to_ascii_string(),
-            // context
-            b"{\"contextAddress\":\"0x0\",\"contextMessage\":\"sample context\",\"extractedParameters\":{\"screen_name\":\"3ol4NGpn8yruLoE\"},\"providerHash\":\"0x168c2d4c2c7fd8c0eb21d4cd9aa634a716b61186b1f61e7ab78cd0dbff34fb04\"}".to_ascii_string(),
+            provider,
+            parameters,
+            context,
         );
+
+        let identifier = b"0x3e091d4a0c020565b1cf703f0ad1d1ddd483095f206243b55aa26a39dd7efbdd".to_ascii_string();
+        let owner = b"0xaebeee4bb6366bde012dc7efc6a01f55a044574c".to_ascii_string();
+        let epoch = b"1".to_ascii_string();
+        let timestamp_s = b"1757697834".to_ascii_string();
 
         let complete_claim_data = reclaim::new_claim_data(
-            // identifier
-            b"0x3e091d4a0c020565b1cf703f0ad1d1ddd483095f206243b55aa26a39dd7efbdd".to_ascii_string(),
-            // owner
-            b"0xaebeee4bb6366bde012dc7efc6a01f55a044574c".to_ascii_string(),
-            // epoch
-            b"1".to_ascii_string(),
-            // timestamp_s
-            b"1757697834".to_ascii_string(),
+            identifier,
+            owner,
+            epoch,
+            timestamp_s,
         );
 
+        let signatures = vector[
+            x"b7e5acc04a5df18547173300af695095ce0d22a325c7cd52eee916d2fd2f518e29f61e4147b49a1282ecc1b706c4d37a6d560160f8bd0ac675e44b1d6cd91bb81c",
+        ];
         let signed_claim = reclaim::new_signed_claim(
             complete_claim_data,
-            vector[
-                x"b7e5acc04a5df18547173300af695095ce0d22a325c7cd52eee916d2fd2f518e29f61e4147b49a1282ecc1b706c4d37a6d560160f8bd0ac675e44b1d6cd91bb81c",
-            ],
+            signatures,
         );
 
         // Generate nonce for commitment
@@ -79,8 +82,8 @@ module zing::reclaim_tests {
         let identifier_hash = hash::keccak256(
             &b"0x3e091d4a0c020565b1cf703f0ad1d1ddd483095f206243b55aa26a39dd7efbdd",
         );
-std::debug::print(&std::ascii::string(b"identifier_hash"));
-std::debug::print(&identifier_hash);
+        std::debug::print(&std::ascii::string(b"identifier_hash"));
+        std::debug::print(&identifier_hash);
 
         let commitment_id;
         // COMMIT PHASE
@@ -112,8 +115,14 @@ std::debug::print(&identifier_hash);
             let signers = reclaim::reveal_and_verify_proof(
                 &mut manager,
                 commitment_id,
-                claim_info,
-                signed_claim,
+                provider,
+                parameters,
+                context,
+                identifier,
+                owner,
+                epoch,
+                timestamp_s,
+                signatures,
                 nonce,
                 &clock,
                 s.ctx(),
@@ -123,6 +132,16 @@ std::debug::print(&identifier_hash);
 
             ts::return_shared(manager);
             ts::return_shared(clock);
+        };
+
+        s.next_tx(user1);
+        {
+            let proof = ts::take_from_sender<Proof>(s);
+
+            let context = proof.proof_claim_info().context();
+            std::debug::print(&context);
+
+            s.return_to_sender(proof);
         };
 
         scenario.end();

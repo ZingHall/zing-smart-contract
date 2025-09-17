@@ -29,7 +29,6 @@ module zing::zing_test_utils {
         let claim_info_bytes = bcs::to_bytes(claim_info);
         // Serialize signed_claim
         let signed_claim_bytes = bcs::to_bytes(signed_claim);
-std::debug::print(&signed_claim_bytes);
         std::debug::print(&hash::keccak256(&signed_claim_bytes));
 
         // Combine all data

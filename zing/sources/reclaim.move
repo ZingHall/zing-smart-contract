@@ -1,6 +1,13 @@
 module zing::reclaim {
     use std::ascii::{Self, String};
-    use sui::{bcs, clock::Clock, hash, object_table::{Self, ObjectTable}, table::{Self, Table}};
+    use sui::{
+        bcs,
+        clock::Clock,
+        hash,
+        object_table::{Self, ObjectTable},
+        table::{Self, Table},
+        vec_map
+    };
     use zing::ecdsa;
 
     // === Errors ===
@@ -9,6 +16,7 @@ module zing::reclaim {
     const E_REVEAL_TOO_LATE: u64 = 103;
     const E_INVALID_NONCE: u64 = 104;
     const E_INVALID_COMMITMENT: u64 = 105;
+    const E_NOT_EXPIRED_COMMITMENT: u64 = 106;
 
     // === Constants ===
     const ONE_MIINUTE_MILLISECOND: u64 = { 60 * 1000 };
@@ -43,11 +51,39 @@ module zing::reclaim {
         }
     }
 
+    public fun provider(claim_info: &ClaimInfo): String {
+        claim_info.provider
+    }
+
+    public fun parameters(claim_info: &ClaimInfo): String {
+        claim_info.parameters
+    }
+
+    public fun context(claim_info: &ClaimInfo): String {
+        claim_info.context
+    }
+
     public struct ClaimData has copy, drop, store {
         identifier: String,
         owner: String,
         epoch: String,
         timestamp_s: String,
+    }
+
+    public fun identifier(claim_data: &ClaimData): String {
+        claim_data.identifier
+    }
+
+    public fun owner(claim_data: &ClaimData): String {
+        claim_data.owner
+    }
+
+    public fun epoch(claim_data: &ClaimData): String {
+        claim_data.epoch
+    }
+
+    public fun timestamp_s(claim_data: &ClaimData): String {
+        claim_data.timestamp_s
     }
 
     public fun new_claim_data(
@@ -69,6 +105,14 @@ module zing::reclaim {
         signatures: vector<vector<u8>>,
     }
 
+    public fun claim_data(signed_claim: &SignedClaim): &ClaimData {
+        &signed_claim.claim
+    }
+
+    public fun signatures(signed_claim: &SignedClaim): vector<vector<u8>> {
+        signed_claim.signatures
+    }
+
     public fun new_signed_claim(claim: ClaimData, signatures: vector<vector<u8>>): SignedClaim {
         SignedClaim {
             claim,
@@ -78,9 +122,21 @@ module zing::reclaim {
 
     public struct Proof has key {
         id: UID,
+        claimed_at: u64,
         claim_info: ClaimInfo,
         signed_claim: SignedClaim,
-        commitment_id: ID, // Link to original commitment
+    }
+
+    public fun proof_claimed_at(proof: &Proof): u64 {
+        proof.claimed_at
+    }
+
+    public fun proof_claim_info(proof: &Proof): &ClaimInfo {
+        &proof.claim_info
+    }
+
+    public fun proof_signed_claim(proof: &Proof): &SignedClaim {
+        &proof.signed_claim
     }
 
     public struct ProofCommitment has key, store {
@@ -141,9 +197,33 @@ module zing::reclaim {
         self.witnesses_num_threshold = witnesses_num_threshold;
     }
 
+    public fun cleanup_expired_commitments(
+        self: &mut ReclaimManager,
+        _cap: &AdminCap,
+        commitment_ids: vector<ID>,
+        clock: &Clock,
+    ) {
+        commitment_ids.do!(|commitment_id| {
+            let commitment = self.commitments.remove(commitment_id);
+            let ProofCommitment {
+                id,
+                commitment_hash: _,
+                committer: _,
+                commit_timestamp,
+                identifier_hash,
+            } = commitment;
+            object::delete(id);
+
+            let time_since_commit = clock.timestamp_ms() - commit_timestamp;
+            assert!(time_since_commit > self.max_reveal_window, E_NOT_EXPIRED_COMMITMENT);
+
+            self.identifier_to_commitment.remove(identifier_hash);
+        });
+    }
+
     // === Public Functions ===
     // COMMIT PHASE: Submit commitment hash
-    public fun commit_proof(
+    entry fun commit_proof(
         self: &mut ReclaimManager,
         commitment_hash: vector<u8>,
         identifier_hash: vector<u8>, // Hash of claim identifier to prevent duplicates
@@ -169,21 +249,33 @@ module zing::reclaim {
 
         // TODO: record timestamp to allow admin delete expired commitment
         // Store commitment
-        object_table::add(&mut self.commitments, commitment_id, commitment);
-        table::add(&mut self.identifier_to_commitment, identifier_hash, commitment_id);
+        self.commitments.add(commitment_id, commitment);
+        self.identifier_to_commitment.add(identifier_hash, commitment_id);
 
         commitment_id
     }
 
-    public fun reveal_and_verify_proof(
+    entry fun reveal_and_verify_proof(
         self: &mut ReclaimManager,
         commitment_id: ID,
-        claim_info: ClaimInfo,
-        signed_claim: SignedClaim,
+        // claim_info
+        provider: String,
+        parameters: String,
+        context: String,
+        // claim data
+        identifier: String,
+        owner: String,
+        epoch: String,
+        timestamp_s: String,
+        signatures: vector<vector<u8>>,
+        // nonce
         nonce: vector<u8>,
         clock: &Clock,
         ctx: &mut TxContext,
     ): vector<vector<u8>> {
+        let claim_info = new_claim_info(provider, parameters, context);
+        let claim_data = new_claim_data(identifier, owner, epoch, timestamp_s);
+        let signed_claim = new_signed_claim(claim_data, signatures);
         // First, read commitment data without mutable borrow
         let commitment = self.commitments.remove(commitment_id);
         let ProofCommitment {
@@ -218,11 +310,11 @@ module zing::reclaim {
         // Create and share the proof object
         let proof = Proof {
             id: object::new(ctx),
+            claimed_at: clock.timestamp_ms(),
             claim_info,
             signed_claim,
-            commitment_id,
         };
-        transfer::share_object(proof);
+        transfer::transfer(proof, committer);
 
         // Clean up - remove from identifier mapping (allow new commits for this identifier)
         let _ = self.identifier_to_commitment.remove(identifier_hash);
@@ -232,15 +324,13 @@ module zing::reclaim {
 
     public fun bytes_to_hex(bytes: &vector<u8>): String {
         let mut hex_string = vector::empty<u8>();
-        let mut i = 0;
-        while (i < vector::length(bytes)) {
-            let byte = *vector::borrow(bytes, i);
+        bytes.do_ref!(|byte_ref| {
+            let byte = *byte_ref;
             let high_nibble = (byte >> 4) & 0x0F;
             let low_nibble = byte & 0x0F;
-            vector::push_back(&mut hex_string, byte_to_hex_char(high_nibble));
-            vector::push_back(&mut hex_string, byte_to_hex_char(low_nibble));
-            i = i + 1;
-        };
+            hex_string.push_back(byte_to_hex_char(high_nibble));
+            hex_string.push_back(byte_to_hex_char(low_nibble));
+        });
         ascii::string(hex_string)
     }
 
@@ -295,26 +385,16 @@ module zing::reclaim {
         assert!(vector::length(&signed_witnesses) == vector::length(&expected_witnesses), 0);
 
         // Verify witnesses
-        let mut expected_witnesses_table = table::new<vector<u8>, bool>(ctx);
-        let mut i = 0;
-        while (i < vector::length(&expected_witnesses)) {
-            table::add(
-                &mut expected_witnesses_table,
-                *vector::borrow(&expected_witnesses, i),
-                true,
-            );
-            i = i + 1;
-        };
+        let mut expected_witnesses_map = vec_map::empty<vector<u8>, bool>();
+        expected_witnesses.do!(|witnesses| {
+            expected_witnesses_map.insert(witnesses, true);
+        });
 
-        i = 0;
-        while (i < signed_witnesses.length()) {
-            assert!(
-                table::remove(&mut expected_witnesses_table, *vector::borrow(&signed_witnesses, i)),
-                0,
-            );
-            i = i + 1;
-        };
-        table::destroy_empty(expected_witnesses_table);
+        signed_witnesses.do!(|signed_witness| {
+            expected_witnesses_map.remove(&signed_witness);
+        });
+
+        expected_witnesses_map.destroy_empty();
 
         signed_witnesses
     }
@@ -422,22 +502,6 @@ module zing::reclaim {
 
         table::destroy_empty(seen);
         has_duplicate
-    }
-
-    fun parse_timestamp(timestamp_str: &String): u64 {
-        let bytes = ascii::as_bytes(timestamp_str);
-        let mut result = 0u64;
-        let mut i = 0;
-
-        while (i < bytes.length()) {
-            let digit = *&bytes[i];
-            if (digit >= 48 && digit <= 57) {
-                result = result * 10 + ((digit - 48) as u64);
-            };
-            i = i + 1;
-        };
-
-        result * 1000 // Convert to milliseconds
     }
 
     fun hash_claim_info(claim_info: &ClaimInfo): String {
