@@ -1,5 +1,6 @@
 #[test_only]
 module zing::zing_test_utils {
+    use std::ascii::{Self, String};
     use sui::{bcs, hash};
     use zing::reclaim::{ClaimInfo, SignedClaim};
 
@@ -29,7 +30,8 @@ module zing::zing_test_utils {
         let claim_info_bytes = bcs::to_bytes(claim_info);
         // Serialize signed_claim
         let signed_claim_bytes = bcs::to_bytes(signed_claim);
-        std::debug::print(&hash::keccak256(&signed_claim_bytes));
+        std::debug::print(&signed_claim_bytes);
+        // std::debug::print(&hash::keccak256(&signed_claim_bytes));
 
         // Combine all data
         let mut combined_data = vector::empty<u8>();
@@ -37,7 +39,7 @@ module zing::zing_test_utils {
         vector::append(&mut combined_data, signed_claim_bytes);
         vector::append(&mut combined_data, *nonce);
 
-        // std::debug::print(&combined_data);
+        std::debug::print(&combined_data);
 
         hash::keccak256(&combined_data)
     }

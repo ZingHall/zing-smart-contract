@@ -1,13 +1,18 @@
 module zing::reclaim {
     use std::ascii::{Self, String};
     use sui::{
+        balance::{Self, Balance},
         bcs,
         clock::Clock,
+        coin::Coin,
+        derived_object,
         hash,
         object_table::{Self, ObjectTable},
+        sui::SUI,
         table::{Self, Table},
         vec_map
     };
+    use walrus::blob::Blob;
     use zing::ecdsa;
 
     // === Errors ===
@@ -17,6 +22,8 @@ module zing::reclaim {
     const E_INVALID_NONCE: u64 = 104;
     const E_INVALID_COMMITMENT: u64 = 105;
     const E_NOT_EXPIRED_COMMITMENT: u64 = 106;
+    const E_EXISTED_POSITION: u64 = 107;
+    const E_UNMATCHED_USERNAME: u64 = 108;
 
     // === Constants ===
     const ONE_MIINUTE_MILLISECOND: u64 = { 60 * 1000 };
@@ -147,6 +154,23 @@ module zing::reclaim {
         identifier_hash: vector<u8>, // Hash of claim identifier to prevent duplicate commits
     }
 
+    // Asset
+    public struct Position has key {
+        id: UID,
+        user_name: String,
+        balance: Balance<SUI>,
+        blobs: ObjectTable<u256, Blob>,
+    }
+
+    // === View Functions ===
+    public fun is_asset_exists(self: &ReclaimManager, user_name: String): bool {
+        derived_object::exists(&self.id, user_name)
+    }
+
+    public fun asset_object_id(self: &ReclaimManager, user_name: String): address {
+        derived_object::derive_address(object::id(self), user_name)
+    }
+
     // === Events ===
 
     // === Method Aliases ===
@@ -200,7 +224,7 @@ module zing::reclaim {
     public fun update_max_reveal_window(
         self: &mut ReclaimManager,
         _cap: &AdminCap,
-        max_reveal_window: u64
+        max_reveal_window: u64,
     ) {
         self.max_reveal_window = max_reveal_window;
     }
@@ -227,6 +251,11 @@ module zing::reclaim {
 
             self.identifier_to_commitment.remove(identifier_hash);
         });
+    }
+
+    // === Package Functions ===
+    public(package) fun derive_id(self: &mut ReclaimManager, key: String): UID {
+        derived_object::claim(&mut self.id, key)
     }
 
     // === Public Functions ===
@@ -330,21 +359,133 @@ module zing::reclaim {
         signers
     }
 
-    public fun bytes_to_hex(bytes: &vector<u8>): String {
-        let mut hex_string = vector::empty<u8>();
-        bytes.do_ref!(|byte_ref| {
-            let byte = *byte_ref;
-            let high_nibble = (byte >> 4) & 0x0F;
-            let low_nibble = byte & 0x0F;
-            hex_string.push_back(byte_to_hex_char(high_nibble));
-            hex_string.push_back(byte_to_hex_char(low_nibble));
-        });
-        ascii::string(hex_string)
+    public fun new_position(
+        self: &mut ReclaimManager,
+        user_name: String,
+        ctx: &mut TxContext,
+    ): Position {
+        assert!(!self.is_asset_exists(user_name), E_EXISTED_POSITION);
+
+        Position {
+            id: derived_object::claim(&mut self.id, user_name),
+            user_name,
+            balance: balance::zero(),
+            blobs: object_table::new(ctx),
+        }
     }
 
-    // === View Functions ===
+    public fun share_position(position: Position) {
+        transfer::share_object(position);
+    }
 
-    // === Package Functions ===
+    public fun donate(position: &mut Position, donation: Coin<SUI>) {
+        position.balance.join(donation.into_balance());
+    }
+
+    public fun claim(position: &mut Position, proof: &Proof, ctx: &mut TxContext): Coin<SUI> {
+        position.assert_user_name(proof);
+
+        position.balance.withdraw_all().into_coin(ctx)
+    }
+
+    // blob
+    public fun add_blob(position: &mut Position, proof: &Proof, blob: Blob) {
+        position.assert_user_name(proof);
+
+        position.blobs.add(blob.blob_id(), blob);
+    }
+
+    public fun remove_blob(position: &mut Position, proof: &Proof, blob_id: u256): Blob {
+        position.assert_user_name(proof);
+
+        position.blobs.remove(blob_id)
+    }
+
+    public fun extract_screen_name_from_context(context: &String): String {
+        let context_bytes = context.as_bytes();
+        let screen_name_key = b"\"screen_name\":\"";
+
+        // Find the position of the screen_name key
+        let key_pos = find_substring(context_bytes, &screen_name_key);
+        if (key_pos == vector::length(context_bytes)) {
+            // Key not found, return empty string
+            return ascii::string(b"");
+        };
+
+        // Start position after the key and opening quote
+        let start_pos = key_pos + vector::length(&screen_name_key);
+
+        // Find the closing quote
+        let mut end_pos = start_pos;
+        while (end_pos < vector::length(context_bytes)) {
+            if (*vector::borrow(context_bytes, end_pos) == 34u8) {
+                // 34 is ASCII for "
+                break
+            };
+            end_pos = end_pos + 1;
+        };
+
+        if (end_pos == vector::length(context_bytes)) {
+            // Closing quote not found, return empty string
+            return ascii::string(b"");
+        };
+
+        // Extract the screen_name value
+        let mut screen_name_bytes = vector::empty<u8>();
+        let mut i = start_pos;
+        while (i < end_pos) {
+            vector::push_back(&mut screen_name_bytes, *vector::borrow(context_bytes, i));
+            i = i + 1;
+        };
+
+        ascii::string(screen_name_bytes)
+    }
+
+    // Helper function to find substring in a byte vector
+    public fun find_substring(haystack: &vector<u8>, needle: &vector<u8>): u64 {
+        let haystack_len = vector::length(haystack);
+        let needle_len = vector::length(needle);
+
+        if (needle_len == 0 || needle_len > haystack_len) {
+            return haystack_len; // Not found
+        };
+
+        let mut i = 0;
+        while (i <= haystack_len - needle_len) {
+            let mut j = 0;
+            let mut found = true;
+
+            while (j < needle_len) {
+                if (*vector::borrow(haystack, i + j) != *vector::borrow(needle, j)) {
+                    found = false;
+                    break
+                };
+                j = j + 1;
+            };
+
+            if (found) {
+                return i
+            };
+
+            i = i + 1;
+        };
+
+        haystack_len // Not found
+    }
+
+    public fun bytes_to_hex(bytes: &vector<u8>): String {
+        let mut hex_string = vector::empty<u8>();
+        let mut i = 0;
+        while (i < vector::length(bytes)) {
+            let byte = *vector::borrow(bytes, i);
+            let high_nibble = (byte >> 4) & 0x0F;
+            let low_nibble = byte & 0x0F;
+            vector::push_back(&mut hex_string, byte_to_hex_char(high_nibble));
+            vector::push_back(&mut hex_string, byte_to_hex_char(low_nibble));
+            i = i + 1;
+        };
+        ascii::string(hex_string)
+    }
 
     // === Private Functions ===
     // Helper function to compute commitment hash
@@ -530,5 +671,10 @@ module zing::reclaim {
             byte + 87 // 'a' is 97 in ASCII, 97 - 10 = 87
         }
     }
-    // === Test Functions ===
+
+    fun assert_user_name(position: &Position, proof: &Proof) {
+        let user_name = extract_screen_name_from_context(&proof.claim_info.context);
+
+        assert!(user_name == position.user_name, E_UNMATCHED_USERNAME);
+    }
 }

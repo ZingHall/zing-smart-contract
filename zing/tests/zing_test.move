@@ -1,12 +1,13 @@
 #[test_only]
 module zing::reclaim_tests {
     use sui::{clock::{Self, Clock}, hash, test_scenario as ts};
+    use sui::derived_object;
     use zing::{reclaim::{Self, ReclaimManager, AdminCap, Proof}, zing_test_utils as test_utils};
 
     #[test]
     fun test_reclaim() {
         let owner = @0xC0FFEE;
-        let user1 = @0xf9875c055ca73af41cdd012474739cf1edbdd0525dcb2321548d87ba7934f1c8;
+        let user1 = @0x884e5fbdc4a6eed68261ab1b743057ad172392e8388a84e4117c843c4b02a15e;
 
         let mut scenario = ts::begin(user1);
         let s = &mut scenario;
@@ -39,6 +40,9 @@ module zing::reclaim_tests {
         let provider = b"http".to_ascii_string();
         let parameters = b"{\"additionalClientOptions\":{},\"body\":\"\",\"geoLocation\":\"\",\"headers\":{\"Sec-Fetch-Mode\":\"same-origin\",\"Sec-Fetch-Site\":\"same-origin\",\"User-Agent\":\"Mozilla/5.0 (iPhone; CPU iPhone OS 18_6_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Mobile/15E148 Safari/604.1\"},\"method\":\"GET\",\"paramValues\":{\"screen_name\":\"3ol4NGpn8yruLoE\"},\"responseMatches\":[{\"invert\":false,\"type\":\"contains\",\"value\":\"\\\"screen_name\\\":\\\"{{screen_name}}\\\"\"}],\"responseRedactions\":[{\"jsonPath\":\"$.screen_name\",\"regex\":\"\\\"screen_name\\\":\\\"(.*)\\\"\",\"xPath\":\"\"}],\"url\":\"https://api.x.com/1.1/account/settings.json?include_ext_sharing_audiospaces_listening_data_with_followers=true&include_mention_filter=true&include_nsfw_user_flag=true&include_nsfw_admin_flag=true&include_ranked_timeline=true&include_alt_text_compose=true&ext=ssoConnections&include_country_code=true&include_ext_dm_nsfw_media_filter=true\"}".to_ascii_string();
         let context = b"{\"contextAddress\":\"0x0\",\"contextMessage\":\"sample context\",\"extractedParameters\":{\"screen_name\":\"3ol4NGpn8yruLoE\"},\"providerHash\":\"0x168c2d4c2c7fd8c0eb21d4cd9aa634a716b61186b1f61e7ab78cd0dbff34fb04\"}".to_ascii_string();
+
+        let screen_name = zing::extract_screen_name_from_context(&context);
+        std::debug::print(&screen_name);
 
         let claim_info = reclaim::new_claim_info(
             provider,
@@ -78,12 +82,12 @@ module zing::reclaim_tests {
             &signed_claim,
             &nonce,
         );
-
         let identifier_hash = hash::keccak256(
             &b"0x3e091d4a0c020565b1cf703f0ad1d1ddd483095f206243b55aa26a39dd7efbdd",
         );
-        std::debug::print(&std::ascii::string(b"identifier_hash"));
         std::debug::print(&identifier_hash);
+        // std::debug::print(&std::ascii::string(b"identifier_hash"));
+        // std::debug::print(&identifier_hash);
 
         let commitment_id;
         // COMMIT PHASE
@@ -139,7 +143,7 @@ module zing::reclaim_tests {
             let proof = ts::take_from_sender<Proof>(s);
 
             let context = proof.proof_claim_info().context();
-            std::debug::print(&context);
+            // std::debug::print(&context);
 
             s.return_to_sender(proof);
         };
